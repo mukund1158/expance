@@ -3,6 +3,7 @@ import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { formatDay, formatMoney, todayISO } from "@/lib/format";
 import { AddMemberForm } from "./AddMemberForm";
+import { LedgerList } from "./LedgerList";
 
 function BreakdownBars({
   rows,
@@ -40,8 +41,11 @@ export default async function SpacePage({
   const { id } = await params;
   const { session, membership, space } = await requireMembership(id);
 
-  const monthKey = todayISO().slice(0, 7);
+  const today = todayISO();
+  const monthKey = today.slice(0, 7);
   const monthStart = new Date(`${monthKey}-01T00:00:00.000Z`);
+  const sevenDaysAgo = new Date(`${today}T00:00:00.000Z`);
+  sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 6);
   const monthLabel = new Intl.DateTimeFormat("en-IN", {
     month: "long",
     year: "numeric",
@@ -72,13 +76,13 @@ export default async function SpacePage({
       orderBy: { createdAt: "asc" },
     }),
     prisma.transaction.findMany({
-      where: { spaceId: id, deletedAt: null },
+      where: { spaceId: id, deletedAt: null, date: { gte: sevenDaysAgo } },
       include: {
         category: { select: { name: true } },
         member: { select: { id: true, name: true } },
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-      take: 100,
+      take: 50,
     }),
     prisma.settlement.findMany({
       where: { spaceId: id, deletedAt: null },
@@ -180,15 +184,6 @@ export default async function SpacePage({
     }, 0);
     return { member: m, net: paid - owedShare + settled };
   });
-
-  // Group the ledger by day.
-  const byDay = new Map<string, typeof transactions>();
-  for (const t of transactions) {
-    const key = t.date.toISOString().slice(0, 10);
-    const list = byDay.get(key) ?? [];
-    list.push(t);
-    byDay.set(key, list);
-  }
 
   return (
     <main className="mx-auto w-full max-w-lg p-5 pb-28">
@@ -345,59 +340,21 @@ export default async function SpacePage({
       )}
 
       <section className="mb-8">
-        <h2 className="eyebrow mb-3">Ledger</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="eyebrow">Ledger · last 7 days</h2>
+          <Link href={`/spaces/${id}/ledger`} className="btn-quiet">
+            View all
+          </Link>
+        </div>
         {transactions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line p-8 text-center">
-            <p className="font-medium">No entries yet</p>
+            <p className="font-medium">Nothing in the last 7 days</p>
             <p className="mt-1 text-sm text-ink-muted">
-              Add the first expense or income below.
+              Add an entry below, or open View all for older ones.
             </p>
           </div>
         ) : (
-          <div className="space-y-5">
-            {[...byDay.entries()].map(([day, list]) => (
-              <div key={day}>
-                <p className="mb-1.5 text-xs font-semibold text-ink-muted">
-                  {formatDay(list[0].date)}
-                </p>
-                <ul className="divide-y divide-line-soft rounded-xl border border-line bg-paper-raised">
-                  {list.map((t) => (
-                    <li key={t.id}>
-                      <Link
-                        href={`/spaces/${id}/tx/${t.id}`}
-                        className="flex items-center gap-3 p-3"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {t.note || t.category.name}
-                          </p>
-                          <p className="mt-0.5 truncate text-xs text-ink-muted">
-                            {t.category.name} · {t.member.name} ·{" "}
-                            {t.paymentMethod.replace("_", " ").toLowerCase()}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p
-                            className={`amount text-sm font-semibold ${
-                              t.type === "INCOME" ? "text-credit" : ""
-                            }`}
-                          >
-                            {t.type === "INCOME" ? "+" : "−"}
-                            {formatMoney(t.amountBase, cur)}
-                          </p>
-                          {t.currency !== cur && (
-                            <p className="amount text-xs text-ink-muted">
-                              {formatMoney(t.amountOriginal, t.currency)}
-                            </p>
-                          )}
-                        </div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+          <LedgerList spaceId={id} entries={transactions} currency={cur} />
         )}
       </section>
 
