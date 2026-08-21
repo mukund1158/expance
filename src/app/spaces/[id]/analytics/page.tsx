@@ -3,6 +3,7 @@ import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { formatMoney, todayISO } from "@/lib/format";
 import { RANGE_LABELS, resolveRange, type RangeKey } from "@/lib/dates";
+import { CategoryDonut } from "./CategoryDonut";
 
 // Presets that make sense for trends (no 7-day / custom noise here).
 const PRESETS = [
@@ -107,17 +108,45 @@ export default async function AnalyticsPage({
   ]);
 
   // ---- Aggregate everything in one pass ----
-  const monthKeys: string[] = [];
-  {
+  // Single-month ranges bucket by week of the month; longer ranges by month.
+  const weekly = preset === "this-month" || preset === "last-month";
+  let bucketDefs: { key: string; label: string }[];
+  let bucketKeyOf: (d: Date) => string;
+
+  if (weekly) {
+    const monthStart = new Date(`${range.from}T00:00:00.000Z`);
+    const daysInMonth = new Date(
+      Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0)
+    ).getUTCDate();
+    const lastDay = Number(range.to.slice(8, 10));
+    bucketDefs = Array.from({ length: Math.ceil(lastDay / 7) }, (_, i) => ({
+      key: String(i),
+      label: `${i * 7 + 1}–${Math.min((i + 1) * 7, daysInMonth)}`,
+    }));
+    bucketKeyOf = (d) =>
+      String(Math.min(Math.floor((d.getUTCDate() - 1) / 7), bucketDefs.length - 1));
+  } else {
+    const keys: string[] = [];
     const end = range.to.slice(0, 7);
     const cursor = new Date(`${range.from.slice(0, 7)}-01T00:00:00.000Z`);
     while (cursor.toISOString().slice(0, 7) <= end) {
-      monthKeys.push(cursor.toISOString().slice(0, 7));
+      keys.push(cursor.toISOString().slice(0, 7));
       cursor.setUTCMonth(cursor.getUTCMonth() + 1);
     }
+    const crossesYears =
+      keys.length > 0 && keys[0].slice(0, 4) !== keys[keys.length - 1].slice(0, 4);
+    const monthLabel = (key: string) =>
+      new Intl.DateTimeFormat("en-IN", {
+        month: "short",
+        ...(crossesYears ? { year: "2-digit" } : {}),
+        timeZone: "UTC",
+      }).format(new Date(`${key}-01T00:00:00.000Z`));
+    bucketDefs = keys.map((k) => ({ key: k, label: monthLabel(k) }));
+    bucketKeyOf = (d) => d.toISOString().slice(0, 7);
   }
-  const monthly = new Map(
-    monthKeys.map((k) => [k, { expense: 0, income: 0 }])
+
+  const byBucket = new Map(
+    bucketDefs.map((b) => [b.key, { expense: 0, income: 0 }])
   );
   const byCategory = new Map<string, number>();
   const byMember = new Map<string, number>();
@@ -127,33 +156,23 @@ export default async function AnalyticsPage({
 
   for (const e of entries) {
     const amount = Number(e.amountBase);
-    const monthEntry = monthly.get(e.date.toISOString().slice(0, 7));
+    const bucketEntry = byBucket.get(bucketKeyOf(e.date));
     if (e.type === "INCOME") {
       income += amount;
-      if (monthEntry) monthEntry.income += amount;
+      if (bucketEntry) bucketEntry.income += amount;
       continue;
     }
     spent += amount;
-    if (monthEntry) monthEntry.expense += amount;
+    if (bucketEntry) bucketEntry.expense += amount;
     byCategory.set(e.categoryId, (byCategory.get(e.categoryId) ?? 0) + amount);
     byMember.set(e.memberId, (byMember.get(e.memberId) ?? 0) + amount);
     byMethod.set(e.paymentMethod, (byMethod.get(e.paymentMethod) ?? 0) + amount);
   }
 
-  const crossesYears =
-    monthKeys.length > 0 &&
-    monthKeys[0].slice(0, 4) !== monthKeys[monthKeys.length - 1].slice(0, 4);
-  const monthLabel = (key: string) =>
-    new Intl.DateTimeFormat("en-IN", {
-      month: "short",
-      ...(crossesYears ? { year: "2-digit" } : {}),
-      timeZone: "UTC",
-    }).format(new Date(`${key}-01T00:00:00.000Z`));
-
-  const trend = monthKeys.map((k) => ({
-    key: k,
-    label: monthLabel(k),
-    ...monthly.get(k)!,
+  const trend = bucketDefs.map((b) => ({
+    key: b.key,
+    label: b.label,
+    ...byBucket.get(b.key)!,
   }));
   const trendMax = Math.max(...trend.map((t) => Math.max(t.expense, t.income)), 1);
 
@@ -235,7 +254,7 @@ export default async function AnalyticsPage({
           {/* Month-by-month trend */}
           <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="eyebrow">Month by month</h2>
+              <h2 className="eyebrow">{weekly ? "Week by week" : "Month by month"}</h2>
               <div className="flex items-center gap-3 text-xs text-ink-muted">
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red" />
@@ -279,7 +298,7 @@ export default async function AnalyticsPage({
               <table className="mt-2 w-full text-xs">
                 <thead>
                   <tr className="text-left text-ink-muted">
-                    <th className="py-1 font-medium">Month</th>
+                    <th className="py-1 font-medium">{weekly ? "Week" : "Month"}</th>
                     <th className="py-1 text-right font-medium">Spent</th>
                     <th className="py-1 text-right font-medium">Income</th>
                     <th className="py-1 text-right font-medium">Net</th>
@@ -311,8 +330,12 @@ export default async function AnalyticsPage({
 
           {byCategory.size > 0 && (
             <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
-              <h2 className="eyebrow mb-3">Spending by category</h2>
-              <BreakdownBars rows={toRows(byCategory, categoryName)} total={spent} currency={cur} />
+              <h2 className="eyebrow mb-4">Spending by category</h2>
+              <CategoryDonut
+                rows={toRows(byCategory, categoryName)}
+                total={spent}
+                currency={cur}
+              />
             </section>
           )}
 

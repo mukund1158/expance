@@ -19,6 +19,14 @@
   --credit: #1e7a46;
   /* Chart-only income green: validated for colorblind separation vs --red. */
   --chart-income: #2f9e5f;
+  /* Categorical chart slots (fixed order, CVD-validated for both surfaces). */
+  --cat-1: #2a78d6;
+  --cat-2: #eb6834;
+  --cat-3: #1baf7a;
+  --cat-4: #eda100;
+  --cat-5: #e87ba4;
+  --cat-6: #008300;
+  --cat-other: #a29c8c;
   --on-red: #fdf6ee;
 }
 
@@ -35,6 +43,13 @@
     --red-tint: #2c1f1d;
     --credit: #55b07f;
     --chart-income: #55b07f;
+    --cat-1: #3987e5;
+    --cat-2: #d95926;
+    --cat-3: #199e70;
+    --cat-4: #c98500;
+    --cat-5: #d55181;
+    --cat-6: #008300;
+    --cat-other: #736d5e;
     --on-red: #fdf6ee;
   }
 }
