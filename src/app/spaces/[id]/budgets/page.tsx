@@ -3,6 +3,7 @@ import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { todayISO } from "@/lib/format";
 import { BudgetForm } from "./BudgetForm";
+import { copyLastMonthBudgets } from "./actions";
 
 export default async function BudgetsPage({
   params,
@@ -20,7 +21,10 @@ export default async function BudgetsPage({
     timeZone: "UTC",
   }).format(monthDate);
 
-  const [categories, budgets] = await Promise.all([
+  const prevMonthDate = new Date(monthDate);
+  prevMonthDate.setUTCMonth(prevMonthDate.getUTCMonth() - 1);
+
+  const [categories, budgets, prevCount] = await Promise.all([
     prisma.category.findMany({
       where: { spaceId: id, kind: "EXPENSE" },
       select: { id: true, name: true },
@@ -29,6 +33,7 @@ export default async function BudgetsPage({
     prisma.budget.findMany({
       where: { spaceId: id, month: monthDate },
     }),
+    prisma.budget.count({ where: { spaceId: id, month: prevMonthDate } }),
   ]);
 
   const amountFor = (categoryId: string | null) => {
@@ -48,6 +53,16 @@ export default async function BudgetsPage({
           not after it&apos;s over.
         </p>
       </header>
+
+      {budgets.length === 0 && prevCount > 0 && (
+        <form action={copyLastMonthBudgets} className="mb-5">
+          <input type="hidden" name="spaceId" value={id} />
+          <input type="hidden" name="month" value={month} />
+          <button type="submit" className="btn-quiet w-full justify-center py-2.5">
+            Copy last month&apos;s budgets ({prevCount})
+          </button>
+        </form>
+      )}
 
       <BudgetForm
         spaceId={id}

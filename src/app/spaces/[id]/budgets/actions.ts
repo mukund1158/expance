@@ -71,3 +71,35 @@ export async function saveBudgets(
   revalidatePath(`/spaces/${spaceId}`);
   redirect(`/spaces/${spaceId}`);
 }
+
+/** Copies last month's budgets into an empty current month. */
+export async function copyLastMonthBudgets(formData: FormData): Promise<void> {
+  const spaceId = formData.get("spaceId");
+  const monthStr = formData.get("month");
+  if (typeof spaceId !== "string" || typeof monthStr !== "string") return;
+  if (!/^\d{4}-\d{2}$/.test(monthStr)) return;
+
+  await requireMembership(spaceId);
+
+  const month = new Date(`${monthStr}-01T00:00:00.000Z`);
+  const prev = new Date(month);
+  prev.setUTCMonth(prev.getUTCMonth() - 1);
+
+  const [current, previous] = await Promise.all([
+    prisma.budget.count({ where: { spaceId, month } }),
+    prisma.budget.findMany({ where: { spaceId, month: prev } }),
+  ]);
+  if (current > 0 || previous.length === 0) return;
+
+  await prisma.budget.createMany({
+    data: previous.map((b) => ({
+      spaceId,
+      categoryId: b.categoryId,
+      month,
+      amount: b.amount,
+    })),
+  });
+
+  revalidatePath(`/spaces/${spaceId}/budgets`);
+  revalidatePath(`/spaces/${spaceId}`);
+}
