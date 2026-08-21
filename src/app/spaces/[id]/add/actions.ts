@@ -6,6 +6,25 @@ import { z } from "zod";
 import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { getFxRate } from "@/lib/fx";
+import {
+  deleteReceiptFile,
+  MAX_RECEIPT_BYTES,
+  RECEIPT_TYPES,
+  saveReceipt,
+} from "@/lib/receipts";
+
+/** Pre-validates an optional receipt upload before any DB write happens. */
+function checkReceipt(formData: FormData): { file?: File; error?: string } {
+  const value = formData.get("receipt");
+  if (!(value instanceof File) || value.size === 0) return {};
+  if (!RECEIPT_TYPES[value.type]) {
+    return { error: "Receipt must be a JPG, PNG or WebP image" };
+  }
+  if (value.size > MAX_RECEIPT_BYTES) {
+    return { error: "Receipt image must be 5MB or smaller" };
+  }
+  return { file: value };
+}
 
 const transactionSchema = z.object({
   spaceId: z.string().min(1),
@@ -95,16 +114,29 @@ export async function addTransaction(
     return parsed.error.issues[0]?.message ?? "Invalid input";
   }
 
+  const receipt = checkReceipt(formData);
+  if (receipt.error) return receipt.error;
+
   const result = await buildTransactionData(parsed.data);
   if ("error" in result) return result.error;
 
-  await prisma.transaction.create({
+  const tx = await prisma.transaction.create({
     data: {
       ...result.row,
       spaceId: parsed.data.spaceId,
       createdById: result.session.user.id,
     },
   });
+
+  if (receipt.file) {
+    const saved = await saveReceipt(receipt.file, tx.id);
+    if ("fileName" in saved) {
+      await prisma.transaction.update({
+        where: { id: tx.id },
+        data: { receiptPath: saved.fileName },
+      });
+    }
+  }
 
   revalidatePath(`/spaces/${parsed.data.spaceId}`);
   redirect(`/spaces/${parsed.data.spaceId}`);
@@ -122,15 +154,34 @@ export async function updateTransaction(
     return parsed.error.issues[0]?.message ?? "Invalid input";
   }
 
+  const receipt = checkReceipt(formData);
+  if (receipt.error) return receipt.error;
+  const removeReceipt = formData.get("removeReceipt") === "on";
+
   const result = await buildTransactionData(parsed.data);
   if ("error" in result) return result.error;
 
   // Scoped to the space so an id from another ledger can't be touched.
-  const updated = await prisma.transaction.updateMany({
+  const existing = await prisma.transaction.findFirst({
     where: { id: txId, spaceId: parsed.data.spaceId, deletedAt: null },
-    data: result.row,
+    select: { id: true, receiptPath: true },
   });
-  if (updated.count === 0) return "Entry not found";
+  if (!existing) return "Entry not found";
+
+  let receiptPath = existing.receiptPath;
+  if (receipt.file) {
+    if (existing.receiptPath) await deleteReceiptFile(existing.receiptPath);
+    const saved = await saveReceipt(receipt.file, existing.id);
+    receiptPath = "fileName" in saved ? saved.fileName : null;
+  } else if (removeReceipt && existing.receiptPath) {
+    await deleteReceiptFile(existing.receiptPath);
+    receiptPath = null;
+  }
+
+  await prisma.transaction.update({
+    where: { id: existing.id },
+    data: { ...result.row, receiptPath },
+  });
 
   revalidatePath(`/spaces/${parsed.data.spaceId}`);
   redirect(`/spaces/${parsed.data.spaceId}`);

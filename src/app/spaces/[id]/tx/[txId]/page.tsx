@@ -57,6 +57,7 @@ export default async function EditEntryPage({
           paymentMethod: tx.paymentMethod,
           date: tx.date.toISOString().slice(0, 10),
           note: tx.note ?? "",
+          hasReceipt: Boolean(tx.receiptPath),
         }}
       />
 

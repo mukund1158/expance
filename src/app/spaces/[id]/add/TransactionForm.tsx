@@ -16,6 +16,7 @@ export type TransactionEditValues = {
   paymentMethod: "CREDIT_CARD" | "UPI" | "CASH" | "BANK";
   date: string;
   note: string;
+  hasReceipt: boolean;
 };
 
 const PAYMENT_METHODS = [
@@ -208,6 +209,38 @@ export function TransactionForm({
             className="field"
           />
         </div>
+      </div>
+
+      <div>
+        <label htmlFor="receipt" className="label">
+          Receipt <span className="font-normal text-ink-muted">(optional photo)</span>
+        </label>
+        {edit?.hasReceipt && (
+          <div className="mb-2">
+            {/* eslint-disable-next-line @next/next/no-img-element -- private, auth-gated image */}
+            <img
+              src={`/api/receipts/${edit.txId}`}
+              alt="Current receipt"
+              className="max-h-44 rounded-lg border border-line"
+            />
+            <label className="mt-2 flex items-center gap-2 text-sm">
+              <input type="checkbox" name="removeReceipt" />
+              Remove this receipt
+            </label>
+          </div>
+        )}
+        <input
+          id="receipt"
+          name="receipt"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="w-full text-sm text-ink-muted file:mr-3 file:rounded-lg file:border file:border-line file:bg-paper-raised file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink"
+        />
+        {edit?.hasReceipt && (
+          <p className="mt-1 text-xs text-ink-muted">
+            Choosing a new photo replaces the current one.
+          </p>
+        )}
       </div>
 
       {error && (

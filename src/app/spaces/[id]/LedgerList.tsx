@@ -10,6 +10,7 @@ export type LedgerEntry = {
   paymentMethod: string;
   date: Date;
   note: string | null;
+  receiptPath: string | null;
   category: { name: string };
   member: { name: string };
 };
@@ -52,6 +53,7 @@ export function LedgerList({
                     <p className="mt-0.5 truncate text-xs text-ink-muted">
                       {t.category.name} · {t.member.name} ·{" "}
                       {t.paymentMethod.replace("_", " ").toLowerCase()}
+                      {t.receiptPath && " · 📎"}
                     </p>
                   </div>
                   <div className="text-right">
