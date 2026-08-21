@@ -9,16 +9,18 @@ export default async function HomePage() {
 
   const memberships = await prisma.spaceMember.findMany({
     where: { userId: session.user.id, space: { deletedAt: null } },
-    include: { space: true },
+    include: { space: { include: { _count: { select: { members: true } } } } },
     orderBy: { createdAt: "asc" },
   });
 
   return (
-    <main className="mx-auto max-w-lg p-6">
-      <header className="mb-8 flex items-center justify-between">
+    <main className="mx-auto w-full max-w-lg p-5 pb-16">
+      <header className="mb-10 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Expance</h1>
-          <p className="text-sm text-neutral-500">Hi, {session.user.name}</p>
+          <p className="eyebrow">Expance</p>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {session.user.name}&apos;s ledgers
+          </h1>
         </div>
         <form
           action={async () => {
@@ -26,43 +28,48 @@ export default async function HomePage() {
             await signOut({ redirectTo: "/login" });
           }}
         >
-          <button
-            type="submit"
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700"
-          >
+          <button type="submit" className="btn-quiet">
             Sign out
           </button>
         </form>
       </header>
 
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
-          Your spaces
-        </h2>
-        <Link
-          href="/spaces/new"
-          className="rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
-        >
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="eyebrow">Spaces</h2>
+        <Link href="/spaces/new" className="btn-primary px-3 py-1.5 text-sm">
           + New space
         </Link>
       </div>
 
       {memberships.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          No spaces yet. Create one for each project, and one for home.
-        </p>
+        <div className="rounded-xl border border-dashed border-line p-8 text-center">
+          <p className="font-medium">Start your first book</p>
+          <p className="mt-1 text-sm text-ink-muted">
+            Create a space for each project, and one for home.
+          </p>
+        </div>
       ) : (
         <ul className="space-y-3">
           {memberships.map((m) => (
-            <li
-              key={m.id}
-              className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800"
-            >
-              <div className="font-medium">{m.space.name}</div>
-              <div className="text-xs text-neutral-500">
-                {m.space.type === "PROJECT" ? "Project" : "Personal"} ·{" "}
-                {m.space.baseCurrency}
-              </div>
+            <li key={m.id}>
+              <Link
+                href={`/spaces/${m.space.id}`}
+                className="spine block rounded-r-xl border border-line bg-paper-raised p-4 shadow-sm transition-colors hover:border-ink-muted"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-lg font-semibold tracking-tight">
+                    {m.space.name}
+                  </span>
+                  <span className="amount text-xs text-ink-muted">
+                    {m.space.baseCurrency}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-ink-muted">
+                  {m.space.type === "PROJECT" ? "Project" : "Personal"} ·{" "}
+                  {m.space._count.members}{" "}
+                  {m.space._count.members === 1 ? "member" : "members"}
+                </div>
+              </Link>
             </li>
           ))}
         </ul>
