@@ -17,6 +17,8 @@
   --red-deep: #8a1d27;
   --red-tint: #f7eced;
   --credit: #1e7a46;
+  /* Chart-only income green: validated for colorblind separation vs --red. */
+  --chart-income: #2f9e5f;
   --on-red: #fdf6ee;
 }
 
@@ -32,6 +34,7 @@
     --red-deep: #b23842;
     --red-tint: #2c1f1d;
     --credit: #55b07f;
+    --chart-income: #55b07f;
     --on-red: #fdf6ee;
   }
 }
@@ -47,6 +50,7 @@
   --color-red-deep: var(--red-deep);
   --color-red-tint: var(--red-tint);
   --color-credit: var(--credit);
+  --color-chart-income: var(--chart-income);
   --color-on-red: var(--on-red);
   --font-sans: var(--font-plex-sans), system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;

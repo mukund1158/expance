@@ -399,9 +399,14 @@ export default async function SpacePage({
       <section className="mb-8">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="eyebrow">Ledger · last 7 days</h2>
-          <Link href={`/spaces/${id}/ledger`} className="btn-quiet">
-            View all
-          </Link>
+          <div className="flex gap-2">
+            <Link href={`/spaces/${id}/analytics`} className="btn-quiet">
+              Analytics
+            </Link>
+            <Link href={`/spaces/${id}/ledger`} className="btn-quiet">
+              View all
+            </Link>
+          </div>
         </div>
         {transactions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line p-8 text-center">

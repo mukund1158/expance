@@ -5,6 +5,8 @@ export type RangeKey =
   | "last-7-days"
   | "this-month"
   | "last-month"
+  | "last-3-months"
+  | "last-6-months"
   | "this-year"
   | "last-year"
   | "custom";
@@ -13,6 +15,8 @@ export const RANGE_LABELS: Record<Exclude<RangeKey, "custom">, string> = {
   "this-month": "This month",
   "last-month": "Last month",
   "last-7-days": "Last 7 days",
+  "last-3-months": "Last 3 months",
+  "last-6-months": "Last 6 months",
   "this-year": "This year",
   "last-year": "Last year",
 };
@@ -45,6 +49,14 @@ export function resolveRange(
       const firstOfThis = `${month}-01`;
       const lastOfPrev = shiftDays(firstOfThis, -1);
       return { key: range, from: `${lastOfPrev.slice(0, 7)}-01`, to: lastOfPrev };
+    }
+    case "last-3-months":
+    case "last-6-months": {
+      // Whole calendar months: N-1 previous months plus the current one.
+      const back = range === "last-3-months" ? 2 : 5;
+      const start = new Date(`${month}-01T00:00:00.000Z`);
+      start.setUTCMonth(start.getUTCMonth() - back);
+      return { key: range, from: start.toISOString().slice(0, 10), to: today };
     }
     case "this-year":
       return { key: range, from: `${year}-01-01`, to: today };
