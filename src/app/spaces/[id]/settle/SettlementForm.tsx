@@ -1,9 +1,18 @@
 "use client";
 
 import { useActionState } from "react";
-import { recordSettlement } from "./actions";
+import { recordSettlement, updateSettlement } from "./actions";
 
 type Member = { userId: string; name: string };
+
+export type SettlementEditValues = {
+  settlementId: string;
+  fromUserId: string;
+  toUserId: string;
+  amount: string;
+  date: string;
+  note: string;
+};
 
 export function SettlementForm({
   spaceId,
@@ -12,6 +21,7 @@ export function SettlementForm({
   defaultToId,
   currencyLabel,
   today,
+  edit,
 }: {
   spaceId: string;
   members: Member[];
@@ -19,15 +29,19 @@ export function SettlementForm({
   defaultToId: string;
   currencyLabel: string;
   today: string;
+  edit?: SettlementEditValues;
 }) {
   const [error, formAction, pending] = useActionState(
-    recordSettlement,
+    edit ? updateSettlement : recordSettlement,
     undefined
   );
 
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="spaceId" value={spaceId} />
+      {edit && (
+        <input type="hidden" name="settlementId" value={edit.settlementId} />
+      )}
 
       <fieldset>
         <legend className="label">Paid by</legend>
@@ -38,7 +52,7 @@ export function SettlementForm({
                 type="radio"
                 name="fromUserId"
                 value={m.userId}
-                defaultChecked={m.userId === defaultFromId}
+                defaultChecked={m.userId === (edit?.fromUserId ?? defaultFromId)}
                 className="sr-only"
               />
               {m.name}
@@ -56,7 +70,7 @@ export function SettlementForm({
                 type="radio"
                 name="toUserId"
                 value={m.userId}
-                defaultChecked={m.userId === defaultToId}
+                defaultChecked={m.userId === (edit?.toUserId ?? defaultToId)}
                 className="sr-only"
               />
               {m.name}
@@ -77,6 +91,7 @@ export function SettlementForm({
           autoComplete="off"
           required
           placeholder="0"
+          defaultValue={edit?.amount}
           className="field amount py-3 text-3xl font-semibold"
         />
       </div>
@@ -91,7 +106,7 @@ export function SettlementForm({
             name="date"
             type="date"
             required
-            defaultValue={today}
+            defaultValue={edit?.date ?? today}
             max={today}
             className="field"
           />
@@ -106,6 +121,7 @@ export function SettlementForm({
             type="text"
             maxLength={500}
             placeholder="UPI transfer…"
+            defaultValue={edit?.note}
             className="field"
           />
         </div>
@@ -118,7 +134,7 @@ export function SettlementForm({
       )}
 
       <button type="submit" disabled={pending} className="btn-primary w-full py-3">
-        {pending ? "Saving…" : "Record settlement"}
+        {pending ? "Saving…" : edit ? "Save changes" : "Record settlement"}
       </button>
     </form>
   );

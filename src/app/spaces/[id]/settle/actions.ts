@@ -19,10 +19,7 @@ const settlementSchema = z.object({
   note: z.string().trim().max(500, "Note too long").optional(),
 });
 
-export async function recordSettlement(
-  _prevState: string | undefined,
-  formData: FormData
-): Promise<string | undefined> {
+async function validateSettlement(formData: FormData) {
   const parsed = settlementSchema.safeParse({
     spaceId: formData.get("spaceId"),
     fromUserId: formData.get("fromUserId"),
@@ -32,12 +29,12 @@ export async function recordSettlement(
     note: formData.get("note") || undefined,
   });
   if (!parsed.success) {
-    return parsed.error.issues[0]?.message ?? "Invalid input";
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
   const data = parsed.data;
 
   if (data.fromUserId === data.toUserId) {
-    return "Payer and receiver must be different people";
+    return { error: "Payer and receiver must be different people" };
   }
 
   await requireMembership(data.spaceId);
@@ -49,19 +46,69 @@ export async function recordSettlement(
       userId: { in: [data.fromUserId, data.toUserId] },
     },
   });
-  if (memberCount !== 2) return "Both people must be members of this space";
+  if (memberCount !== 2) {
+    return { error: "Both people must be members of this space" };
+  }
 
-  await prisma.settlement.create({
+  return {
     data: {
-      spaceId: data.spaceId,
       fromUserId: data.fromUserId,
       toUserId: data.toUserId,
       amount: data.amount.toFixed(2),
       date: new Date(`${data.date}T00:00:00.000Z`),
-      note: data.note,
+      note: data.note ?? null,
     },
+    spaceId: data.spaceId,
+  };
+}
+
+export async function recordSettlement(
+  _prevState: string | undefined,
+  formData: FormData
+): Promise<string | undefined> {
+  const result = await validateSettlement(formData);
+  if ("error" in result) return result.error;
+
+  await prisma.settlement.create({
+    data: { ...result.data, spaceId: result.spaceId },
   });
 
-  revalidatePath(`/spaces/${data.spaceId}`);
-  redirect(`/spaces/${data.spaceId}`);
+  revalidatePath(`/spaces/${result.spaceId}`);
+  redirect(`/spaces/${result.spaceId}`);
+}
+
+export async function updateSettlement(
+  _prevState: string | undefined,
+  formData: FormData
+): Promise<string | undefined> {
+  const settlementId = formData.get("settlementId");
+  if (typeof settlementId !== "string" || !settlementId) return "Missing id";
+
+  const result = await validateSettlement(formData);
+  if ("error" in result) return result.error;
+
+  const updated = await prisma.settlement.updateMany({
+    where: { id: settlementId, spaceId: result.spaceId, deletedAt: null },
+    data: result.data,
+  });
+  if (updated.count === 0) return "Settlement not found";
+
+  revalidatePath(`/spaces/${result.spaceId}`);
+  redirect(`/spaces/${result.spaceId}`);
+}
+
+export async function deleteSettlement(formData: FormData): Promise<void> {
+  const settlementId = formData.get("settlementId");
+  const spaceId = formData.get("spaceId");
+  if (typeof settlementId !== "string" || typeof spaceId !== "string") return;
+
+  await requireMembership(spaceId);
+
+  await prisma.settlement.updateMany({
+    where: { id: settlementId, spaceId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+
+  revalidatePath(`/spaces/${spaceId}`);
+  redirect(`/spaces/${spaceId}`);
 }
