@@ -4,6 +4,34 @@ import { prisma } from "@/lib/prisma";
 import { formatDay, formatMoney, todayISO } from "@/lib/format";
 import { AddMemberForm } from "./AddMemberForm";
 
+function BreakdownBars({
+  rows,
+  currency,
+}: {
+  rows: { label: string; value: number }[];
+  currency: "INR" | "USD";
+}) {
+  const max = Math.max(...rows.map((r) => r.value), 1);
+  return (
+    <ul className="space-y-3">
+      {rows.map((r) => (
+        <li key={r.label}>
+          <div className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="truncate font-medium">{r.label}</span>
+            <span className="amount shrink-0">{formatMoney(r.value, currency)}</span>
+          </div>
+          <div className="mt-1 h-2 rounded-full bg-line-soft">
+            <div
+              className="h-2 rounded-full bg-red"
+              style={{ width: `${Math.max((r.value / max) * 100, 2)}%` }}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default async function SpacePage({
   params,
 }: {
@@ -12,9 +40,32 @@ export default async function SpacePage({
   const { id } = await params;
   const { session, membership, space } = await requireMembership(id);
 
-  const monthStart = new Date(`${todayISO().slice(0, 7)}-01T00:00:00.000Z`);
+  const monthKey = todayISO().slice(0, 7);
+  const monthStart = new Date(`${monthKey}-01T00:00:00.000Z`);
+  const monthLabel = new Intl.DateTimeFormat("en-IN", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(monthStart);
 
-  const [members, transactions, settlements, monthTotals] = await Promise.all([
+  const monthExpenseWhere = {
+    spaceId: id,
+    deletedAt: null,
+    type: "EXPENSE" as const,
+    date: { gte: monthStart },
+  };
+
+  const [
+    members,
+    transactions,
+    settlements,
+    monthTotals,
+    monthByMember,
+    monthByCategory,
+    creditCardMonth,
+    monthBudgets,
+    allExpenses,
+  ] = await Promise.all([
     prisma.spaceMember.findMany({
       where: { spaceId: id },
       include: { user: { select: { id: true, name: true } } },
@@ -31,14 +82,50 @@ export default async function SpacePage({
     }),
     prisma.settlement.findMany({
       where: { spaceId: id, deletedAt: null },
-      select: { fromUserId: true, toUserId: true, amount: true },
+      include: {
+        fromUser: { select: { name: true } },
+        toUser: { select: { name: true } },
+      },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
     prisma.transaction.groupBy({
       by: ["type"],
       where: { spaceId: id, deletedAt: null, date: { gte: monthStart } },
       _sum: { amountBase: true },
     }),
+    prisma.transaction.groupBy({
+      by: ["memberId"],
+      where: monthExpenseWhere,
+      _sum: { amountBase: true },
+    }),
+    prisma.transaction.groupBy({
+      by: ["categoryId"],
+      where: monthExpenseWhere,
+      _sum: { amountBase: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { ...monthExpenseWhere, paymentMethod: "CREDIT_CARD" },
+      _sum: { amountBase: true },
+    }),
+    prisma.budget.findMany({
+      where: { spaceId: id, month: monthStart },
+      include: { category: { select: { id: true, name: true } } },
+    }),
+    prisma.transaction.groupBy({
+      by: ["memberId"],
+      where: { spaceId: id, deletedAt: null, type: "EXPENSE" },
+      _sum: { amountBase: true },
+    }),
   ]);
+
+  const categories = await prisma.category.findMany({
+    where: { spaceId: id },
+    select: { id: true, name: true },
+  });
+  const categoryName = (cid: string) =>
+    categories.find((c) => c.id === cid)?.name ?? "?";
+  const memberName = (uid: string) =>
+    members.find((m) => m.userId === uid)?.user.name ?? "?";
 
   const cur = space.baseCurrency;
   const monthSpent = Number(
@@ -47,14 +134,36 @@ export default async function SpacePage({
   const monthIncome = Number(
     monthTotals.find((t) => t.type === "INCOME")?._sum.amountBase ?? 0
   );
+  const ccSpent = Number(creditCardMonth._sum.amountBase ?? 0);
+
+  const memberBars = monthByMember
+    .map((r) => ({
+      label: memberName(r.memberId),
+      value: Number(r._sum.amountBase ?? 0),
+    }))
+    .sort((a, b) => b.value - a.value);
+  const categoryBars = monthByCategory
+    .map((r) => ({
+      label: categoryName(r.categoryId),
+      value: Number(r._sum.amountBase ?? 0),
+    }))
+    .sort((a, b) => b.value - a.value);
+
+  // Spent per category this month, for budget meters.
+  const spentByCategory = new Map(
+    monthByCategory.map((r) => [r.categoryId, Number(r._sum.amountBase ?? 0)])
+  );
+  const budgetRows = monthBudgets
+    .map((b) => ({
+      label: b.category?.name ?? "Overall",
+      budget: Number(b.amount),
+      spent: b.category ? (spentByCategory.get(b.category.id) ?? 0) : monthSpent,
+      overall: !b.category,
+    }))
+    .sort((a, b) => Number(b.overall) - Number(a.overall) || b.budget - a.budget);
 
   // Contribution balance (project spaces): what each member has paid vs the
   // share they're responsible for, adjusted by settlements. Positive = is owed.
-  const allExpenses = await prisma.transaction.groupBy({
-    by: ["memberId"],
-    where: { spaceId: id, deletedAt: null, type: "EXPENSE" },
-    _sum: { amountBase: true },
-  });
   const totalExpenses = allExpenses.reduce(
     (sum, row) => sum + Number(row._sum.amountBase ?? 0),
     0
@@ -97,22 +206,97 @@ export default async function SpacePage({
 
       <section className="mb-6 grid grid-cols-2 gap-3">
         <div className="rounded-xl border border-line bg-paper-raised p-4">
-          <p className="eyebrow">Spent this month</p>
+          <p className="eyebrow">Spent · {monthLabel.split(" ")[0]}</p>
           <p className="amount mt-1 text-xl font-semibold">
             {formatMoney(monthSpent, cur)}
           </p>
         </div>
         <div className="rounded-xl border border-line bg-paper-raised p-4">
-          <p className="eyebrow">Income this month</p>
+          <p className="eyebrow">Income · {monthLabel.split(" ")[0]}</p>
           <p className="amount mt-1 text-xl font-semibold text-credit">
             {formatMoney(monthIncome, cur)}
           </p>
         </div>
+        <div className="col-span-2 flex items-baseline justify-between rounded-xl border border-line bg-paper-raised px-4 py-3">
+          <p className="eyebrow">On credit card this month</p>
+          <p className="amount font-semibold">{formatMoney(ccSpent, cur)}</p>
+        </div>
       </section>
+
+      {space.type === "PERSONAL" && (
+        <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="eyebrow">Budgets · {monthLabel}</h2>
+            <Link href={`/spaces/${id}/budgets`} className="btn-quiet">
+              {budgetRows.length === 0 ? "Set budgets" : "Edit"}
+            </Link>
+          </div>
+          {budgetRows.length === 0 ? (
+            <p className="text-sm text-ink-muted">
+              Set monthly limits to see problems on the 18th, not the 31st.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {budgetRows.map((b) => {
+                const over = b.spent > b.budget;
+                const pct = Math.min((b.spent / b.budget) * 100, 100);
+                return (
+                  <li key={b.label}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className={`truncate ${b.overall ? "font-semibold" : "font-medium"}`}>
+                        {b.label}
+                      </span>
+                      <span className="amount shrink-0 text-xs">
+                        {over ? (
+                          <strong className="text-red">
+                            over by {formatMoney(b.spent - b.budget, cur)}
+                          </strong>
+                        ) : (
+                          <>
+                            {formatMoney(b.spent, cur)}{" "}
+                            <span className="text-ink-muted">
+                              of {formatMoney(b.budget, cur)}
+                            </span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-line-soft">
+                      <div
+                        className={`h-2 rounded-full ${over ? "bg-red" : "bg-ink-muted"}`}
+                        style={{ width: `${Math.max(pct, 2)}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {memberBars.length > 0 && members.length > 1 && (
+        <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
+          <h2 className="eyebrow mb-3">Who spent · {monthLabel}</h2>
+          <BreakdownBars rows={memberBars} currency={cur} />
+        </section>
+      )}
+
+      {categoryBars.length > 0 && (
+        <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
+          <h2 className="eyebrow mb-3">By category · {monthLabel}</h2>
+          <BreakdownBars rows={categoryBars} currency={cur} />
+        </section>
+      )}
 
       {space.type === "PROJECT" && members.length > 1 && (
         <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
-          <h2 className="eyebrow mb-3">Contribution balance</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="eyebrow">Contribution balance</h2>
+            <Link href={`/spaces/${id}/settle`} className="btn-quiet">
+              Settle up
+            </Link>
+          </div>
           <ul className="space-y-2">
             {balances.map(({ member, net }) => (
               <li
@@ -139,6 +323,24 @@ export default async function SpacePage({
               </li>
             ))}
           </ul>
+          {settlements.length > 0 && (
+            <div className="mt-4 border-t border-line-soft pt-3">
+              <p className="eyebrow mb-2">Recent settlements</p>
+              <ul className="space-y-1.5">
+                {settlements.slice(0, 3).map((s) => (
+                  <li
+                    key={s.id}
+                    className="flex items-baseline justify-between gap-3 text-xs text-ink-muted"
+                  >
+                    <span>
+                      {s.fromUser.name} → {s.toUser.name} · {formatDay(s.date)}
+                    </span>
+                    <span className="amount">{formatMoney(s.amount, cur)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       )}
 
@@ -160,31 +362,36 @@ export default async function SpacePage({
                 </p>
                 <ul className="divide-y divide-line-soft rounded-xl border border-line bg-paper-raised">
                   {list.map((t) => (
-                    <li key={t.id} className="flex items-center gap-3 p-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {t.note || t.category.name}
-                        </p>
-                        <p className="mt-0.5 truncate text-xs text-ink-muted">
-                          {t.category.name} · {t.member.name} ·{" "}
-                          {t.paymentMethod.replace("_", " ").toLowerCase()}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p
-                          className={`amount text-sm font-semibold ${
-                            t.type === "INCOME" ? "text-credit" : ""
-                          }`}
-                        >
-                          {t.type === "INCOME" ? "+" : "−"}
-                          {formatMoney(t.amountBase, cur)}
-                        </p>
-                        {t.currency !== cur && (
-                          <p className="amount text-xs text-ink-muted">
-                            {formatMoney(t.amountOriginal, t.currency)}
+                    <li key={t.id}>
+                      <Link
+                        href={`/spaces/${id}/tx/${t.id}`}
+                        className="flex items-center gap-3 p-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {t.note || t.category.name}
                           </p>
-                        )}
-                      </div>
+                          <p className="mt-0.5 truncate text-xs text-ink-muted">
+                            {t.category.name} · {t.member.name} ·{" "}
+                            {t.paymentMethod.replace("_", " ").toLowerCase()}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p
+                            className={`amount text-sm font-semibold ${
+                              t.type === "INCOME" ? "text-credit" : ""
+                            }`}
+                          >
+                            {t.type === "INCOME" ? "+" : "−"}
+                            {formatMoney(t.amountBase, cur)}
+                          </p>
+                          {t.currency !== cur && (
+                            <p className="amount text-xs text-ink-muted">
+                              {formatMoney(t.amountOriginal, t.currency)}
+                            </p>
+                          )}
+                        </div>
+                      </Link>
                     </li>
                   ))}
                 </ul>

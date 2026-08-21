@@ -7,7 +7,7 @@ import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { getFxRate } from "@/lib/fx";
 
-const addTransactionSchema = z.object({
+const transactionSchema = z.object({
   spaceId: z.string().min(1),
   type: z.enum(["EXPENSE", "INCOME"]),
   amount: z.coerce
@@ -23,11 +23,8 @@ const addTransactionSchema = z.object({
   note: z.string().trim().max(500, "Note too long").optional(),
 });
 
-export async function addTransaction(
-  _prevState: string | undefined,
-  formData: FormData
-): Promise<string | undefined> {
-  const parsed = addTransactionSchema.safeParse({
+function parseForm(formData: FormData) {
+  return transactionSchema.safeParse({
     spaceId: formData.get("spaceId"),
     type: formData.get("type"),
     amount: formData.get("amount"),
@@ -38,38 +35,43 @@ export async function addTransaction(
     date: formData.get("date"),
     note: formData.get("note") || undefined,
   });
-  if (!parsed.success) {
-    return parsed.error.issues[0]?.message ?? "Invalid input";
-  }
-  const data = parsed.data;
+}
 
+/**
+ * Validates the entry against the space (membership, category, payer) and
+ * computes the base-currency amount. Returns an error string or the row data.
+ */
+async function buildTransactionData(data: z.infer<typeof transactionSchema>) {
   const { session, space } = await requireMembership(data.spaceId);
 
   // The category must belong to this space and match the entry type.
   const category = await prisma.category.findFirst({
     where: { id: data.categoryId, spaceId: data.spaceId, kind: data.type },
   });
-  if (!category) return "Pick a category";
+  if (!category) return { error: "Pick a category" as const };
 
   // Whoever paid/received must be a member of this space.
   const payer = await prisma.spaceMember.findUnique({
     where: { spaceId_userId: { spaceId: data.spaceId, userId: data.memberId } },
   });
-  if (!payer) return "Payer is not a member of this space";
+  if (!payer) return { error: "Payer is not a member of this space" as const };
 
   let fxRate = 1;
   if (data.currency !== space.baseCurrency) {
     try {
       fxRate = await getFxRate(data.date, data.currency, space.baseCurrency);
     } catch {
-      return "Currency rate lookup failed — check your connection and try again";
+      return {
+        error:
+          "Currency rate lookup failed — check your connection and try again" as const,
+      };
     }
   }
   const amountBase = Math.round(data.amount * fxRate * 100) / 100;
 
-  await prisma.transaction.create({
-    data: {
-      spaceId: data.spaceId,
+  return {
+    session,
+    row: {
       type: data.type,
       amountOriginal: data.amount.toFixed(2),
       currency: data.currency,
@@ -79,11 +81,74 @@ export async function addTransaction(
       memberId: data.memberId,
       paymentMethod: data.paymentMethod,
       date: new Date(`${data.date}T00:00:00.000Z`),
-      note: data.note,
-      createdById: session.user.id,
+      note: data.note ?? null,
+    },
+  };
+}
+
+export async function addTransaction(
+  _prevState: string | undefined,
+  formData: FormData
+): Promise<string | undefined> {
+  const parsed = parseForm(formData);
+  if (!parsed.success) {
+    return parsed.error.issues[0]?.message ?? "Invalid input";
+  }
+
+  const result = await buildTransactionData(parsed.data);
+  if ("error" in result) return result.error;
+
+  await prisma.transaction.create({
+    data: {
+      ...result.row,
+      spaceId: parsed.data.spaceId,
+      createdById: result.session.user.id,
     },
   });
 
-  revalidatePath(`/spaces/${data.spaceId}`);
-  redirect(`/spaces/${data.spaceId}`);
+  revalidatePath(`/spaces/${parsed.data.spaceId}`);
+  redirect(`/spaces/${parsed.data.spaceId}`);
+}
+
+export async function updateTransaction(
+  _prevState: string | undefined,
+  formData: FormData
+): Promise<string | undefined> {
+  const txId = formData.get("txId");
+  if (typeof txId !== "string" || !txId) return "Missing entry id";
+
+  const parsed = parseForm(formData);
+  if (!parsed.success) {
+    return parsed.error.issues[0]?.message ?? "Invalid input";
+  }
+
+  const result = await buildTransactionData(parsed.data);
+  if ("error" in result) return result.error;
+
+  // Scoped to the space so an id from another ledger can't be touched.
+  const updated = await prisma.transaction.updateMany({
+    where: { id: txId, spaceId: parsed.data.spaceId, deletedAt: null },
+    data: result.row,
+  });
+  if (updated.count === 0) return "Entry not found";
+
+  revalidatePath(`/spaces/${parsed.data.spaceId}`);
+  redirect(`/spaces/${parsed.data.spaceId}`);
+}
+
+export async function deleteTransaction(formData: FormData): Promise<void> {
+  const txId = formData.get("txId");
+  const spaceId = formData.get("spaceId");
+  if (typeof txId !== "string" || typeof spaceId !== "string") return;
+
+  await requireMembership(spaceId);
+
+  // Soft delete only — money records are never erased.
+  await prisma.transaction.updateMany({
+    where: { id: txId, spaceId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+
+  revalidatePath(`/spaces/${spaceId}`);
+  redirect(`/spaces/${spaceId}`);
 }

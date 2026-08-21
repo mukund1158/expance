@@ -1,10 +1,22 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { addTransaction } from "./actions";
+import { addTransaction, updateTransaction } from "./actions";
 
 type Category = { id: string; name: string; kind: "EXPENSE" | "INCOME" };
 type Member = { userId: string; name: string };
+
+export type TransactionEditValues = {
+  txId: string;
+  type: "EXPENSE" | "INCOME";
+  amount: string;
+  currency: "INR" | "USD";
+  categoryId: string;
+  memberId: string;
+  paymentMethod: "CREDIT_CARD" | "UPI" | "CASH" | "BANK";
+  date: string;
+  note: string;
+};
 
 const PAYMENT_METHODS = [
   { value: "UPI", label: "UPI" },
@@ -20,6 +32,7 @@ export function TransactionForm({
   selfId,
   baseCurrency,
   today,
+  edit,
 }: {
   spaceId: string;
   categories: Category[];
@@ -27,15 +40,24 @@ export function TransactionForm({
   selfId: string;
   baseCurrency: "INR" | "USD";
   today: string;
+  edit?: TransactionEditValues;
 }) {
-  const [error, formAction, pending] = useActionState(addTransaction, undefined);
-  const [type, setType] = useState<"EXPENSE" | "INCOME">("EXPENSE");
+  const [error, formAction, pending] = useActionState(
+    edit ? updateTransaction : addTransaction,
+    undefined
+  );
+  const [type, setType] = useState<"EXPENSE" | "INCOME">(
+    edit?.type ?? "EXPENSE"
+  );
 
   const visibleCategories = categories.filter((c) => c.kind === type);
+  const checkedCategoryId =
+    edit && edit.type === type ? edit.categoryId : visibleCategories[0]?.id;
 
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="spaceId" value={spaceId} />
+      {edit && <input type="hidden" name="txId" value={edit.txId} />}
 
       {/* Expense / income toggle — a ledger has two sides */}
       <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-line">
@@ -77,8 +99,9 @@ export function TransactionForm({
             autoComplete="off"
             required
             placeholder="0"
+            defaultValue={edit?.amount}
             className="field amount flex-1 py-3 text-3xl font-semibold"
-            autoFocus
+            autoFocus={!edit}
           />
           <div className="flex flex-col justify-center gap-1.5">
             {(["INR", "USD"] as const).map((c) => (
@@ -87,7 +110,7 @@ export function TransactionForm({
                   type="radio"
                   name="currency"
                   value={c}
-                  defaultChecked={c === baseCurrency}
+                  defaultChecked={c === (edit?.currency ?? baseCurrency)}
                   className="sr-only"
                 />
                 {c === "INR" ? "₹ INR" : "$ USD"}
@@ -101,13 +124,13 @@ export function TransactionForm({
       <fieldset>
         <legend className="label">Category</legend>
         <div className="flex flex-wrap gap-2" key={type}>
-          {visibleCategories.map((c, i) => (
+          {visibleCategories.map((c) => (
             <label key={c.id} className="chip">
               <input
                 type="radio"
                 name="categoryId"
                 value={c.id}
-                defaultChecked={i === 0}
+                defaultChecked={c.id === checkedCategoryId}
                 className="sr-only"
               />
               {c.name}
@@ -128,7 +151,7 @@ export function TransactionForm({
                 type="radio"
                 name="memberId"
                 value={m.userId}
-                defaultChecked={m.userId === selfId}
+                defaultChecked={m.userId === (edit?.memberId ?? selfId)}
                 className="sr-only"
               />
               {m.name}
@@ -147,7 +170,7 @@ export function TransactionForm({
                 type="radio"
                 name="paymentMethod"
                 value={p.value}
-                defaultChecked={p.value === "UPI"}
+                defaultChecked={p.value === (edit?.paymentMethod ?? "UPI")}
                 className="sr-only"
               />
               {p.label}
@@ -166,7 +189,7 @@ export function TransactionForm({
             name="date"
             type="date"
             required
-            defaultValue={today}
+            defaultValue={edit?.date ?? today}
             max={today}
             className="field"
           />
@@ -181,6 +204,7 @@ export function TransactionForm({
             type="text"
             maxLength={500}
             placeholder="What was it?"
+            defaultValue={edit?.note}
             className="field"
           />
         </div>
@@ -193,7 +217,7 @@ export function TransactionForm({
       )}
 
       <button type="submit" disabled={pending} className="btn-primary w-full py-3">
-        {pending ? "Saving…" : "Save entry"}
+        {pending ? "Saving…" : edit ? "Save changes" : "Save entry"}
       </button>
     </form>
   );
