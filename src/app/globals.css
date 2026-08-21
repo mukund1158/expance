@@ -171,6 +171,14 @@ body {
   }
 }
 
+/* Horizontal chip strips scroll without a visible scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 :focus-visible {
   outline: 2px solid var(--red);
   outline-offset: 2px;

@@ -5,17 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { formatDay, formatMoney, todayISO } from "@/lib/format";
 import { RANGE_LABELS, resolveRange } from "@/lib/dates";
 import { LedgerList } from "../LedgerList";
+import { Filters } from "./Filters";
 
 const MAX_ENTRIES = 300;
-
-const chipBase =
-  "inline-flex items-center rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors";
-const chipIdle = "border-line bg-paper-raised text-ink";
-const chipActive = "border-red bg-red-tint text-red";
-
-function chip(active: boolean) {
-  return `${chipBase} ${active ? chipActive : chipIdle}`;
-}
 
 export default async function LedgerPage({
   params,
@@ -83,22 +75,6 @@ export default async function LedgerPage({
     totals.find((t) => t.type === "INCOME")?._sum?.amountBase ?? 0
   );
 
-  // Link that changes one filter and keeps the rest.
-  const href = (patch: Record<string, string | undefined>) => {
-    const q = new URLSearchParams();
-    const merged: Record<string, string | undefined> = {
-      range: range.key,
-      from: range.key === "custom" ? range.from : undefined,
-      to: range.key === "custom" ? range.to : undefined,
-      member,
-      type: typeFilter,
-      ...patch,
-    };
-    for (const [k, v] of Object.entries(merged)) if (v) q.set(k, v);
-    const s = q.toString();
-    return `/spaces/${id}/ledger${s ? `?${s}` : ""}`;
-  };
-
   const rangeTitle =
     range.key === "custom"
       ? `${formatDay(new Date(`${range.from}T00:00:00.000Z`))} – ${formatDay(new Date(`${range.to}T00:00:00.000Z`))}`
@@ -106,107 +82,23 @@ export default async function LedgerPage({
 
   return (
     <main className="mx-auto w-full max-w-lg p-5 pb-16">
-      <header className="mb-5">
+      <header className="mb-4">
         <Link href={`/spaces/${id}`} className="text-sm text-ink-muted">
           ← {space.name}
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">Ledger</h1>
       </header>
 
-      {/* Date range */}
-      <div className="mb-3 flex flex-wrap gap-2">
-        {(Object.keys(RANGE_LABELS) as (keyof typeof RANGE_LABELS)[]).map(
-          (key) => (
-            <Link
-              key={key}
-              href={href({ range: key, from: undefined, to: undefined })}
-              className={chip(range.key === key)}
-            >
-              {RANGE_LABELS[key]}
-            </Link>
-          )
-        )}
-      </div>
-
-      {/* Custom range */}
-      <details className="mb-3" open={range.key === "custom"}>
-        <summary
-          className={`${chip(range.key === "custom")} cursor-pointer list-none`}
-        >
-          Custom dates
-        </summary>
-        <form method="GET" className="mt-3 flex items-end gap-2">
-          <input type="hidden" name="range" value="custom" />
-          {member && <input type="hidden" name="member" value={member} />}
-          {typeFilter && <input type="hidden" name="type" value={typeFilter} />}
-          <div className="flex-1">
-            <label htmlFor="from" className="label">
-              From
-            </label>
-            <input
-              id="from"
-              name="from"
-              type="date"
-              required
-              max={today}
-              defaultValue={range.key === "custom" ? range.from : ""}
-              className="field"
-            />
-          </div>
-          <div className="flex-1">
-            <label htmlFor="to" className="label">
-              To
-            </label>
-            <input
-              id="to"
-              name="to"
-              type="date"
-              required
-              max={today}
-              defaultValue={range.key === "custom" ? range.to : ""}
-              className="field"
-            />
-          </div>
-          <button type="submit" className="btn-primary shrink-0">
-            Apply
-          </button>
-        </form>
-      </details>
-
-      {/* Member + type filters */}
-      {members.length > 1 && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          <Link href={href({ member: undefined })} className={chip(!member)}>
-            Everyone
-          </Link>
-          {members.map((m) => (
-            <Link
-              key={m.userId}
-              href={href({ member: m.userId })}
-              className={chip(member === m.userId)}
-            >
-              {m.user.name}
-            </Link>
-          ))}
-        </div>
-      )}
-      <div className="mb-5 flex flex-wrap gap-2">
-        <Link href={href({ type: undefined })} className={chip(!typeFilter)}>
-          All entries
-        </Link>
-        <Link
-          href={href({ type: "EXPENSE" })}
-          className={chip(typeFilter === "EXPENSE")}
-        >
-          Expenses
-        </Link>
-        <Link
-          href={href({ type: "INCOME" })}
-          className={chip(typeFilter === "INCOME")}
-        >
-          Income
-        </Link>
-      </div>
+      <Filters
+        spaceId={id}
+        members={members.map((m) => ({ userId: m.userId, name: m.user.name }))}
+        rangeKey={range.key}
+        from={range.from}
+        to={range.to}
+        member={member}
+        type={typeFilter}
+        today={today}
+      />
 
       {/* Totals for the selection */}
       <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
