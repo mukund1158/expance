@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { formatDay, formatMoney, todayISO } from "@/lib/format";
 import { AddMemberForm } from "./AddMemberForm";
 import { LedgerList } from "./LedgerList";
+import { DeleteSpaceButton, RemoveMemberButton } from "./ManageButtons";
 
 function BreakdownBars({
   rows,
@@ -69,6 +70,7 @@ export default async function SpacePage({
     creditCardMonth,
     monthBudgets,
     allExpenses,
+    allTimeTotals,
   ] = await Promise.all([
     prisma.spaceMember.findMany({
       where: { spaceId: id },
@@ -120,6 +122,11 @@ export default async function SpacePage({
       where: { spaceId: id, deletedAt: null, type: "EXPENSE" },
       _sum: { amountBase: true },
     }),
+    prisma.transaction.groupBy({
+      by: ["type"],
+      where: { spaceId: id, deletedAt: null },
+      _sum: { amountBase: true },
+    }),
   ]);
 
   const categories = await prisma.category.findMany({
@@ -165,6 +172,15 @@ export default async function SpacePage({
       overall: !b.category,
     }))
     .sort((a, b) => Number(b.overall) - Number(a.overall) || b.budget - a.budget);
+
+  // All-time profit (project spaces): income minus expenses, split by share.
+  const allTimeIncome = Number(
+    allTimeTotals.find((t) => t.type === "INCOME")?._sum?.amountBase ?? 0
+  );
+  const allTimeExpense = Number(
+    allTimeTotals.find((t) => t.type === "EXPENSE")?._sum?.amountBase ?? 0
+  );
+  const profit = allTimeIncome - allTimeExpense;
 
   // Contribution balance (project spaces): what each member has paid vs the
   // share they're responsible for, adjusted by settlements. Positive = is owed.
@@ -284,6 +300,45 @@ export default async function SpacePage({
         </section>
       )}
 
+      {space.type === "PROJECT" && (
+        <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
+          <h2 className="eyebrow mb-3">Profit · all time</h2>
+          <div className="flex items-baseline justify-between">
+            <p className="text-sm text-ink-muted">
+              {formatMoney(allTimeIncome, cur)} in −{" "}
+              {formatMoney(allTimeExpense, cur)} out
+            </p>
+            <p
+              className={`amount text-xl font-semibold ${
+                profit > 0 ? "text-credit" : profit < 0 ? "text-red" : ""
+              }`}
+            >
+              {formatMoney(profit, cur)}
+            </p>
+          </div>
+          {members.length > 1 && (
+            <ul className="mt-3 space-y-1.5 border-t border-line-soft pt-3">
+              {members.map((m) => (
+                <li
+                  key={m.id}
+                  className="flex items-baseline justify-between text-sm"
+                >
+                  <span className="font-medium">
+                    {m.user.name}
+                    <span className="ml-1.5 text-xs text-ink-muted">
+                      {Number(m.sharePercent)}%
+                    </span>
+                  </span>
+                  <span className="amount">
+                    {formatMoney((profit * Number(m.sharePercent)) / 100, cur)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {space.type === "PROJECT" && members.length > 1 && (
         <section className="mb-6 rounded-xl border border-line bg-paper-raised p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -323,14 +378,16 @@ export default async function SpacePage({
               <p className="eyebrow mb-2">Recent settlements</p>
               <ul className="space-y-1.5">
                 {settlements.slice(0, 3).map((s) => (
-                  <li
-                    key={s.id}
-                    className="flex items-baseline justify-between gap-3 text-xs text-ink-muted"
-                  >
-                    <span>
-                      {s.fromUser.name} → {s.toUser.name} · {formatDay(s.date)}
-                    </span>
-                    <span className="amount">{formatMoney(s.amount, cur)}</span>
+                  <li key={s.id}>
+                    <Link
+                      href={`/spaces/${id}/settle/${s.id}`}
+                      className="flex items-baseline justify-between gap-3 text-xs text-ink-muted"
+                    >
+                      <span>
+                        {s.fromUser.name} → {s.toUser.name} · {formatDay(s.date)}
+                      </span>
+                      <span className="amount">{formatMoney(s.amount, cur)}</span>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -362,21 +419,54 @@ export default async function SpacePage({
         <h2 className="eyebrow mb-3">Members</h2>
         <ul className="divide-y divide-line-soft rounded-xl border border-line bg-paper-raised">
           {members.map((m) => (
-            <li key={m.id} className="flex items-center justify-between p-3 text-sm">
+            <li key={m.id} className="flex items-center justify-between gap-2 p-3 text-sm">
               <span className="font-medium">
                 {m.user.name}
                 {m.user.id === session.user.id && (
                   <span className="ml-1.5 text-xs text-ink-muted">(you)</span>
                 )}
               </span>
-              <span className="text-xs text-ink-muted">
-                {m.role === "OWNER" ? "Owner" : "Member"}
-                {space.type === "PROJECT" && ` · ${Number(m.sharePercent)}%`}
+              <span className="flex items-center gap-2">
+                <span className="text-xs text-ink-muted">
+                  {m.role === "OWNER" ? "Owner" : "Member"}
+                  {space.type === "PROJECT" && ` · ${Number(m.sharePercent)}%`}
+                </span>
+                {membership.role === "OWNER" && m.user.id !== session.user.id && (
+                  <RemoveMemberButton
+                    spaceId={id}
+                    userId={m.user.id}
+                    name={m.user.name}
+                    isProject={space.type === "PROJECT"}
+                  />
+                )}
               </span>
             </li>
           ))}
         </ul>
         {membership.role === "OWNER" && <AddMemberForm spaceId={id} />}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="eyebrow mb-3">Manage</h2>
+        <div className="space-y-2">
+          <Link
+            href={`/spaces/${id}/categories`}
+            className="block rounded-xl border border-line bg-paper-raised p-3 text-sm font-medium"
+          >
+            Categories
+          </Link>
+          {space.type === "PROJECT" && membership.role === "OWNER" && (
+            <Link
+              href={`/spaces/${id}/shares`}
+              className="block rounded-xl border border-line bg-paper-raised p-3 text-sm font-medium"
+            >
+              Member shares
+            </Link>
+          )}
+          {membership.role === "OWNER" && (
+            <DeleteSpaceButton spaceId={id} name={space.name} />
+          )}
+        </div>
       </section>
 
       <Link

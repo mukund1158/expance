@@ -1,5 +1,6 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireMembership } from "@/lib/access";
@@ -61,4 +62,76 @@ export async function addMember(
 
   revalidatePath(`/spaces/${spaceId}`);
   return undefined;
+}
+
+export async function removeMember(
+  _prevState: string | undefined,
+  formData: FormData
+): Promise<string | undefined> {
+  const spaceId = formData.get("spaceId");
+  const targetUserId = formData.get("userId");
+  if (typeof spaceId !== "string" || typeof targetUserId !== "string") {
+    return "Invalid input";
+  }
+
+  const { session, membership, space } = await requireMembership(spaceId);
+  if (membership.role !== "OWNER") return "Only the space owner can remove members";
+  if (targetUserId === session.user.id) return "You can't remove yourself";
+
+  const target = await prisma.spaceMember.findUnique({
+    where: { spaceId_userId: { spaceId, userId: targetUserId } },
+    include: { user: { select: { name: true } } },
+  });
+  if (!target) return "Not a member of this space";
+
+  // A member with recorded money stays in history — they can't be removed
+  // without corrupting balances.
+  const [txCount, settlementCount] = await Promise.all([
+    prisma.transaction.count({
+      where: { spaceId, memberId: targetUserId, deletedAt: null },
+    }),
+    prisma.settlement.count({
+      where: {
+        spaceId,
+        deletedAt: null,
+        OR: [{ fromUserId: targetUserId }, { toUserId: targetUserId }],
+      },
+    }),
+  ]);
+  if (txCount > 0 || settlementCount > 0) {
+    return `${target.user.name} has entries or settlements in this space and can't be removed`;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.spaceMember.delete({ where: { id: target.id } });
+    if (space.type === "PROJECT") {
+      const remaining = await tx.spaceMember.findMany({ where: { spaceId } });
+      const equal = Math.floor(10000 / remaining.length) / 100;
+      await tx.spaceMember.updateMany({
+        where: { spaceId },
+        data: { sharePercent: equal },
+      });
+    }
+  });
+
+  revalidatePath(`/spaces/${spaceId}`);
+  return undefined;
+}
+
+export async function deleteSpace(formData: FormData): Promise<void> {
+  const spaceId = formData.get("spaceId");
+  if (typeof spaceId !== "string") return;
+
+  const { membership } = await requireMembership(spaceId);
+  if (membership.role !== "OWNER") return;
+
+  // Soft delete: the ledger stays in the database, the space just disappears
+  // from every member's app.
+  await prisma.space.update({
+    where: { id: spaceId },
+    data: { deletedAt: new Date() },
+  });
+
+  revalidatePath("/");
+  redirect("/");
 }

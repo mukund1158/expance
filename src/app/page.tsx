@@ -3,9 +3,14 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  const passwordChanged = (await searchParams).password === "changed";
 
   const memberships = await prisma.spaceMember.findMany({
     where: { userId: session.user.id, space: { deletedAt: null } },
@@ -22,17 +27,28 @@ export default async function HomePage() {
             {session.user.name}&apos;s ledgers
           </h1>
         </div>
-        <form
-          action={async () => {
-            "use server";
-            await signOut({ redirectTo: "/login" });
-          }}
-        >
-          <button type="submit" className="btn-quiet">
-            Sign out
-          </button>
-        </form>
+        <div className="flex items-center gap-2">
+          <Link href="/account" className="btn-quiet">
+            Account
+          </Link>
+          <form
+            action={async () => {
+              "use server";
+              await signOut({ redirectTo: "/login" });
+            }}
+          >
+            <button type="submit" className="btn-quiet">
+              Sign out
+            </button>
+          </form>
+        </div>
       </header>
+
+      {passwordChanged && (
+        <p className="mb-4 rounded-xl border border-line bg-paper-raised p-3 text-sm font-medium text-credit">
+          Password changed.
+        </p>
+      )}
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="eyebrow">Spaces</h2>
