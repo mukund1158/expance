@@ -38,8 +38,9 @@ red cloth-bound ledger book Indian shops have always run on.
 - **Receipts** — photos stored outside the web root, served only through a
   membership-checked route.
 - **Soft deletes everywhere** — money records are never erased, only hidden.
-- **Private by design** — no public sign-up; accounts are created by the
-  operator from the command line.
+- **QR invites** — every space has its own invite QR. Scanning it joins the
+  space, creating an account on the spot for people who don't have one.
+  Owners can regenerate the QR to revoke everything shared before.
 
 ## Stack
 
@@ -76,12 +77,11 @@ Requirements: Node.js 20+, MySQL 8.
    # set DATABASE_URL, and AUTH_SECRET (npx auth secret)
    ```
 
-3. **Install, migrate, create your users:**
+3. **Install and migrate:**
 
    ```bash
    npm install
    npx prisma migrate dev
-   USER_PASSWORD='...' npx tsx scripts/create-user.ts "Your Name" you@example.com
    ```
 
 4. **Run it:**
@@ -90,7 +90,10 @@ Requirements: Node.js 20+, MySQL 8.
    npm run dev
    ```
 
-   Sign in, create a space, add members by email, start entering.
+   Register your account, create a space, invite people with its QR (or by
+   email if they already have an account), start entering.
+   (`scripts/create-user.ts` still exists for creating accounts from the
+   command line if you ever need it.)
 
 ## Production notes
 

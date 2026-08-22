@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
+import { addUserToSpace } from "@/lib/membership";
 
 const addMemberSchema = z.object({
   spaceId: z.string().min(1),
@@ -43,22 +44,7 @@ export async function addMember(
     return `${user.name} is already a member`;
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.spaceMember.create({
-      data: { spaceId, userId: user.id, role: "MEMBER" },
-    });
-    if (space.type === "PROJECT") {
-      // Default to an equal split among all members (2 people -> 50/50).
-      // Custom splits can be edited later; rounding to 2dp may leave the
-      // total a paisa short for 3+ members, which is fine for percentages.
-      const members = await tx.spaceMember.findMany({ where: { spaceId } });
-      const equal = Math.floor(10000 / members.length) / 100;
-      await tx.spaceMember.updateMany({
-        where: { spaceId },
-        data: { sharePercent: equal },
-      });
-    }
-  });
+  await addUserToSpace(spaceId, user.id, space.type);
 
   revalidatePath(`/spaces/${spaceId}`);
   return undefined;

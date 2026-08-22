@@ -64,6 +64,9 @@ model Space {
   name         String
   type         SpaceType
   baseCurrency Currency  @default(INR)
+  // Random token behind the space's invite link/QR. Regenerating it revokes
+  // every previously shared QR.
+  inviteToken  String?   @unique
   createdAt    DateTime  @default(now())
   deletedAt    DateTime?
 

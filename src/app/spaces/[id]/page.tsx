@@ -421,7 +421,14 @@ export default async function SpacePage({
       </section>
 
       <section>
-        <h2 className="eyebrow mb-3">Members</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="eyebrow">Members</h2>
+          {membership.role === "OWNER" && (
+            <Link href={`/spaces/${id}/invite`} className="btn-quiet">
+              Invite QR
+            </Link>
+          )}
+        </div>
         <ul className="divide-y divide-line-soft rounded-xl border border-line bg-paper-raised">
           {members.map((m) => (
             <li key={m.id} className="flex items-center justify-between gap-2 p-3 text-sm">

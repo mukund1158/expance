@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { newInviteToken } from "@/lib/invite";
 
 const createSpaceSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(60, "Name too long"),
@@ -43,7 +44,7 @@ export async function createSpace(
 
   await prisma.$transaction(async (tx) => {
     const space = await tx.space.create({
-      data: { name, type, baseCurrency },
+      data: { name, type, baseCurrency, inviteToken: newInviteToken() },
     });
     await tx.spaceMember.create({
       data: {
