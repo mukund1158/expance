@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { deleteSpace, removeMember } from "./actions";
+import { removeMember } from "./actions";
 
 export function RemoveMemberButton({
   spaceId,
@@ -44,36 +44,5 @@ export function RemoveMemberButton({
         </p>
       )}
     </>
-  );
-}
-
-export function DeleteSpaceButton({
-  spaceId,
-  name,
-}: {
-  spaceId: string;
-  name: string;
-}) {
-  return (
-    <form
-      action={deleteSpace}
-      onSubmit={(e) => {
-        if (
-          !confirm(
-            `Delete "${name}"? It disappears for every member. Its records stay in the database but the app will no longer show them.`
-          )
-        ) {
-          e.preventDefault();
-        }
-      }}
-    >
-      <input type="hidden" name="spaceId" value={spaceId} />
-      <button
-        type="submit"
-        className="w-full rounded-lg border border-red py-2.5 text-sm font-semibold text-red"
-      >
-        Delete space
-      </button>
-    </form>
   );
 }

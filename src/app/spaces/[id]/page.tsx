@@ -2,9 +2,8 @@ import Link from "next/link";
 import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { formatDay, formatMoney, todayISO } from "@/lib/format";
-import { AddMemberForm } from "./AddMemberForm";
 import { LedgerList } from "./LedgerList";
-import { DeleteSpaceButton, RemoveMemberButton } from "./ManageButtons";
+import { SpaceMenu } from "./SpaceMenu";
 
 function BreakdownBars({
   rows,
@@ -40,7 +39,7 @@ export default async function SpacePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { session, membership, space } = await requireMembership(id);
+  const { membership, space } = await requireMembership(id);
 
   const today = todayISO();
   const monthKey = today.slice(0, 7);
@@ -207,11 +206,18 @@ export default async function SpacePage({
         <Link href="/" className="text-sm text-ink-muted">
           ← All spaces
         </Link>
-        <div className="spine mt-2 rounded-r-xl border border-line bg-paper-raised p-4">
-          <p className="eyebrow">
-            {space.type === "PROJECT" ? "Project" : "Personal"} · {cur}
-          </p>
-          <h1 className="text-2xl font-bold tracking-tight">{space.name}</h1>
+        <div className="spine mt-2 flex items-start justify-between gap-3 rounded-r-xl border border-line bg-paper-raised p-4">
+          <div>
+            <p className="eyebrow">
+              {space.type === "PROJECT" ? "Project" : "Personal"} · {cur}
+            </p>
+            <h1 className="text-2xl font-bold tracking-tight">{space.name}</h1>
+          </div>
+          <SpaceMenu
+            spaceId={id}
+            spaceName={space.name}
+            isOwner={membership.role === "OWNER"}
+          />
         </div>
       </header>
 
@@ -399,14 +405,9 @@ export default async function SpacePage({
       <section className="mb-8">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="eyebrow">Ledger · last 7 days</h2>
-          <div className="flex gap-2">
-            <Link href={`/spaces/${id}/analytics`} className="btn-quiet">
-              Analytics
-            </Link>
-            <Link href={`/spaces/${id}/ledger`} className="btn-quiet">
-              View all
-            </Link>
-          </div>
+          <Link href={`/spaces/${id}/ledger`} className="btn-quiet">
+            View all
+          </Link>
         </div>
         {transactions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line p-8 text-center">
@@ -418,67 +419,6 @@ export default async function SpacePage({
         ) : (
           <LedgerList spaceId={id} entries={transactions} currency={cur} />
         )}
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="eyebrow">Members</h2>
-          {membership.role === "OWNER" && (
-            <Link href={`/spaces/${id}/invite`} className="btn-quiet">
-              Invite QR
-            </Link>
-          )}
-        </div>
-        <ul className="divide-y divide-line-soft rounded-xl border border-line bg-paper-raised">
-          {members.map((m) => (
-            <li key={m.id} className="flex items-center justify-between gap-2 p-3 text-sm">
-              <span className="font-medium">
-                {m.user.name}
-                {m.user.id === session.user.id && (
-                  <span className="ml-1.5 text-xs text-ink-muted">(you)</span>
-                )}
-              </span>
-              <span className="flex items-center gap-2">
-                <span className="text-xs text-ink-muted">
-                  {m.role === "OWNER" ? "Owner" : "Member"}
-                  {space.type === "PROJECT" && ` · ${Number(m.sharePercent)}%`}
-                </span>
-                {membership.role === "OWNER" && m.user.id !== session.user.id && (
-                  <RemoveMemberButton
-                    spaceId={id}
-                    userId={m.user.id}
-                    name={m.user.name}
-                    isProject={space.type === "PROJECT"}
-                  />
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-        {membership.role === "OWNER" && <AddMemberForm spaceId={id} />}
-      </section>
-
-      <section className="mt-8">
-        <h2 className="eyebrow mb-3">Manage</h2>
-        <div className="space-y-2">
-          <Link
-            href={`/spaces/${id}/categories`}
-            className="block rounded-xl border border-line bg-paper-raised p-3 text-sm font-medium"
-          >
-            Categories
-          </Link>
-          {space.type === "PROJECT" && membership.role === "OWNER" && (
-            <Link
-              href={`/spaces/${id}/shares`}
-              className="block rounded-xl border border-line bg-paper-raised p-3 text-sm font-medium"
-            >
-              Member shares
-            </Link>
-          )}
-          {membership.role === "OWNER" && (
-            <DeleteSpaceButton spaceId={id} name={space.name} />
-          )}
-        </div>
       </section>
 
       <Link
