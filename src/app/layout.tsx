@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { ServiceWorkerRegistrar } from "./ServiceWorkerRegistrar";
+import { ChunkReloadGuard } from "./ChunkReloadGuard";
 import "./globals.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -46,6 +47,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <ServiceWorkerRegistrar />
+        <ChunkReloadGuard />
         {children}
       </body>
     </html>
