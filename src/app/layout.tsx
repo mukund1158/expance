@@ -16,10 +16,17 @@ const plexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600"],
 });
 
+const SITE_URL = process.env.AUTH_URL ?? "http://localhost:3000";
+const DESCRIPTION =
+  "The shared money ledger for co-founders and families. Track who paid what, settle up, set budgets that warn early, and see where the money went — multi-currency, open source, installable on your phone.";
+
 export const metadata: Metadata = {
-  title: "Expance",
-  description:
-    "Expense, income and settlement tracking for projects and home",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "Expance — know where the money went",
+    template: "%s · Expance",
+  },
+  description: DESCRIPTION,
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -28,6 +35,20 @@ export const metadata: Metadata = {
   icons: {
     icon: "/icon-192.png",
     apple: "/icon-192.png",
+  },
+  openGraph: {
+    type: "website",
+    url: SITE_URL,
+    siteName: "Expance",
+    title: "Expance — know where the money went",
+    description: DESCRIPTION,
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Expance — the shared money ledger" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Expance — know where the money went",
+    description: DESCRIPTION,
+    images: ["/og.png"],
   },
 };
 

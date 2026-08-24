@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Landing } from "./Landing";
 
 export default async function HomePage({
   searchParams,
@@ -9,7 +9,7 @@ export default async function HomePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await auth();
-  if (!session?.user) redirect("/login");
+  if (!session?.user) return <Landing />;
   const passwordChanged = (await searchParams).password === "changed";
 
   const memberships = await prisma.spaceMember.findMany({
