@@ -45,8 +45,6 @@ export default async function SpacePage({
   const today = todayISO();
   const monthKey = today.slice(0, 7);
   const monthStart = new Date(`${monthKey}-01T00:00:00.000Z`);
-  const sevenDaysAgo = new Date(`${today}T00:00:00.000Z`);
-  sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 6);
   const monthLabel = new Intl.DateTimeFormat("en-IN", {
     month: "long",
     year: "numeric",
@@ -78,13 +76,13 @@ export default async function SpacePage({
       orderBy: { createdAt: "asc" },
     }),
     prisma.transaction.findMany({
-      where: { spaceId: id, deletedAt: null, date: { gte: sevenDaysAgo } },
+      where: { spaceId: id, deletedAt: null },
       include: {
         category: { select: { name: true } },
         member: { select: { id: true, name: true } },
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-      take: 50,
+      take: 10,
     }),
     prisma.settlement.findMany({
       where: { spaceId: id, deletedAt: null },
@@ -416,16 +414,16 @@ export default async function SpacePage({
 
       <section className="mb-8">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="eyebrow">Ledger · last 7 days</h2>
+          <h2 className="eyebrow">Ledger · recent 10</h2>
           <Link href={`/spaces/${id}/ledger`} className="btn-quiet">
             View all
           </Link>
         </div>
         {transactions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line p-8 text-center">
-            <p className="font-medium">Nothing in the last 7 days</p>
+            <p className="font-medium">No entries yet</p>
             <p className="mt-1 text-sm text-ink-muted">
-              Add an entry below, or open View all for older ones.
+              Add the first expense or income below.
             </p>
           </div>
         ) : (
