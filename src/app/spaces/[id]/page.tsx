@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { formatDay, formatMoney, todayISO } from "@/lib/format";
+import { computeBalances } from "@/lib/balance";
 import { LedgerList } from "./LedgerList";
 import { SpaceMenu } from "./SpaceMenu";
 
@@ -68,7 +69,7 @@ export default async function SpacePage({
     monthByCategory,
     creditCardMonth,
     monthBudgets,
-    allExpenses,
+    allByMember,
     allTimeTotals,
   ] = await Promise.all([
     prisma.spaceMember.findMany({
@@ -117,8 +118,8 @@ export default async function SpacePage({
       include: { category: { select: { id: true, name: true } } },
     }),
     prisma.transaction.groupBy({
-      by: ["memberId"],
-      where: { spaceId: id, deletedAt: null, type: "EXPENSE" },
+      by: ["memberId", "type"],
+      where: { spaceId: id, deletedAt: null },
       _sum: { amountBase: true },
     }),
     prisma.transaction.groupBy({
@@ -181,24 +182,26 @@ export default async function SpacePage({
   );
   const profit = allTimeIncome - allTimeExpense;
 
-  // Contribution balance (project spaces): what each member has paid vs the
-  // share they're responsible for, adjusted by settlements. Positive = is owed.
-  const totalExpenses = allExpenses.reduce(
-    (sum, row) => sum + Number(row._sum.amountBase ?? 0),
-    0
-  );
-  const balances = members.map((m) => {
-    const paid = Number(
-      allExpenses.find((r) => r.memberId === m.userId)?._sum.amountBase ?? 0
-    );
-    const owedShare = (Number(m.sharePercent) / 100) * totalExpenses;
-    const settled = settlements.reduce((sum, s) => {
-      if (s.fromUserId === m.userId) return sum + Number(s.amount);
-      if (s.toUserId === m.userId) return sum - Number(s.amount);
-      return sum;
-    }, 0);
-    return { member: m, net: paid - owedShare + settled };
+  const computed = computeBalances({
+    members: members.map((m) => ({
+      userId: m.userId,
+      sharePercent: Number(m.sharePercent),
+    })),
+    transactions: allByMember.map((r) => ({
+      memberId: r.memberId,
+      type: r.type,
+      amount: Number(r._sum.amountBase ?? 0),
+    })),
+    settlements: settlements.map((s) => ({
+      fromUserId: s.fromUserId,
+      toUserId: s.toUserId,
+      amount: Number(s.amount),
+    })),
   });
+  const balances = members.map((m) => ({
+    member: m,
+    ...computed.find((b) => b.userId === m.userId)!,
+  }));
 
   return (
     <main className="mx-auto w-full max-w-lg p-5 pb-28">
@@ -353,32 +356,41 @@ export default async function SpacePage({
               Settle up
             </Link>
           </div>
-          <ul className="space-y-2">
-            {balances.map(({ member, net }) => (
-              <li
-                key={member.id}
-                className="flex items-baseline justify-between gap-3 text-sm"
-              >
-                <span className="font-medium">
-                  {member.user.name}
-                  <span className="ml-1.5 text-xs text-ink-muted">
-                    {Number(member.sharePercent)}%
+          <ul className="space-y-3">
+            {balances.map(({ member, net, paid, received, settledOut, settledIn }) => (
+              <li key={member.id} className="text-sm">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="font-medium">
+                    {member.user.name}
+                    <span className="ml-1.5 text-xs text-ink-muted">
+                      {Number(member.sharePercent)}%
+                    </span>
                   </span>
-                </span>
-                <span
-                  className={`amount font-semibold ${
-                    net >= 0.005 ? "text-credit" : net <= -0.005 ? "text-red" : "text-ink-muted"
-                  }`}
-                >
-                  {Math.abs(net) < 0.005
-                    ? "settled"
-                    : net > 0
-                      ? `is owed ${formatMoney(net, cur)}`
-                      : `owes ${formatMoney(-net, cur)}`}
-                </span>
+                  <span
+                    className={`amount font-semibold ${
+                      net > 0 ? "text-credit" : net < 0 ? "text-red" : "text-ink-muted"
+                    }`}
+                  >
+                    {net === 0
+                      ? "settled"
+                      : net > 0
+                        ? `is owed ${formatMoney(net, cur)}`
+                        : `owes ${formatMoney(-net, cur)}`}
+                  </span>
+                </div>
+                <p className="amount mt-0.5 text-xs text-ink-muted">
+                  paid {formatMoney(paid, cur)}
+                  {received > 0 && ` · received ${formatMoney(received, cur)}`}
+                  {settledOut > 0 && ` · gave ${formatMoney(settledOut, cur)}`}
+                  {settledIn > 0 && ` · got ${formatMoney(settledIn, cur)}`}
+                </p>
               </li>
             ))}
           </ul>
+          <p className="mt-3 text-xs text-ink-muted">
+            Income counts too: whoever receives revenue holds the others&apos;
+            share of it.
+          </p>
           {settlements.length > 0 && (
             <div className="mt-4 border-t border-line-soft pt-3">
               <p className="eyebrow mb-2">Recent settlements</p>

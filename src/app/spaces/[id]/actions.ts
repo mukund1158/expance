@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireMembership } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
-import { addUserToSpace } from "@/lib/membership";
+import { addUserToSpace, resplitSharesEqually } from "@/lib/membership";
 
 const addMemberSchema = z.object({
   spaceId: z.string().min(1),
@@ -90,14 +90,7 @@ export async function removeMember(
 
   await prisma.$transaction(async (tx) => {
     await tx.spaceMember.delete({ where: { id: target.id } });
-    if (space.type === "PROJECT") {
-      const remaining = await tx.spaceMember.findMany({ where: { spaceId } });
-      const equal = Math.floor(10000 / remaining.length) / 100;
-      await tx.spaceMember.updateMany({
-        where: { spaceId },
-        data: { sharePercent: equal },
-      });
-    }
+    if (space.type === "PROJECT") await resplitSharesEqually(tx, spaceId);
   });
 
   revalidatePath(`/spaces/${spaceId}`);
